@@ -187,14 +187,15 @@ int CheckInstalledChromeDriverVersion()
 
 TCHAR* GetLatestChromeDriverUrl(int nVersion)
 {
-	TCHAR szLatestUrl[255];
+	TCHAR szLatestUrl[255] = { 0 };
 	_stprintf(szLatestUrl, _T("https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%d"), nVersion);
 	
 	IStream* stream;
 	//Source URL
 	
 	// URLDownloadToFile returns S_OK on success 
-	if (URLOpenBlockingStream(0, szLatestUrl, &stream, 0, 0) == S_OK)
+	HRESULT hr = URLOpenBlockingStream(NULL, szLatestUrl, &stream, 0, NULL);
+	if (hr == S_OK)
 	{
 		char buff[128] = { 0 };
 		char* p = buff;
@@ -217,6 +218,10 @@ TCHAR* GetLatestChromeDriverUrl(int nVersion)
 			_stprintf(pszZipUrl, _T("https://chromedriver.storage.googleapis.com/%s/chromedriver_win32.zip"), szVersion);
 			return pszZipUrl;
 		}
+	}
+	else
+	{
+		_tprintf(_T("URLOpenBlockingStream hr = %X, url = %s"), hr, szLatestUrl);
 	}
 	return NULL;
 }
