@@ -13,6 +13,7 @@ const TCHAR g_szChromePath1[] = _T("c:\\Program Files (x86)\\Google\\Chrome\\");
 const TCHAR g_szChromePath2[] = _T("c:\\Program Files\\Google\\Chrome\\");
 
 TCHAR g_szWorkingPath[MAX_PATH];
+CHAR chProcessBuf[512];
 
 void GetWorkingPath()
 {
@@ -70,100 +71,37 @@ int GetInstalledChormeVersion()
 	return nVer;
 }
 
-
-
-
-
 int CheckInstalledChromeDriverVersion()
 {
-	STARTUPINFO si = { 0 };
-	PROCESS_INFORMATION pi = { 0 };
-	SECURITY_ATTRIBUTES saAttr = { 0 };
-	HANDLE hChildStd_OUT_Rd = NULL;
-	HANDLE hChildStd_OUT_Wr = NULL;
-	DWORD dwRead;
-	CHAR chBuf[512];
+	TCHAR* pszChormeDriverPath = new TCHAR[MAX_PATH + 128];
+	if (!pszChormeDriverPath)
+	{
+		return -1;
+	}
+
+	_tcscpy(pszChormeDriverPath, g_szWorkingPath);
+	PathAppend(pszChormeDriverPath, _T("chromedriver.exe"));
+	_tcscat(pszChormeDriverPath, _T(" --version"));
+
+	if (!MyRunProcess(pszChormeDriverPath))
+	{
+		delete[] pszChormeDriverPath;
+		return -1;
+	}
+	
+	delete[] pszChormeDriverPath;
+	
 	int nVersion = -1;
-		
-	chBuf[0] = 0;
 
-	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-	saAttr.bInheritHandle = TRUE;
-	saAttr.lpSecurityDescriptor = NULL;
-
-	// Create a pipe for the child process's STDOUT. 
-
-	if (!CreatePipe(&hChildStd_OUT_Rd, &hChildStd_OUT_Wr, &saAttr, 0))
-	{
-		return -1;
-	}
-
-	// Ensure the read handle to the pipe for STDOUT is not inherited.
-
-	if (!SetHandleInformation(hChildStd_OUT_Rd, HANDLE_FLAG_INHERIT, 0))
-	{
-		CloseHandle(hChildStd_OUT_Rd);
-		CloseHandle(hChildStd_OUT_Wr);
-		return -1;
-	}
-
-	si.cb = sizeof(si);
-	si.hStdError = hChildStd_OUT_Wr;
-	si.hStdOutput = hChildStd_OUT_Wr;
-	si.dwFlags |= STARTF_USESTDHANDLES;
-
-	TCHAR* pszCommandLineBuffer =  new TCHAR[MAX_PATH + 128];
-	if (!pszCommandLineBuffer)
-	{
-		CloseHandle(hChildStd_OUT_Rd);
-		CloseHandle(hChildStd_OUT_Wr);
-		return -1;
-	}
-	
-	_tcscpy(pszCommandLineBuffer, g_szWorkingPath);
-	PathAppend(pszCommandLineBuffer, _T("chromedriver.exe"));
-	_tcscat(pszCommandLineBuffer, _T(" --version"));
-	
-	// Start the child process. 
-	if (CreateProcess(NULL,           // No module name (use command line)
-		pszCommandLineBuffer,    // Command line
-		NULL,                           // Process handle not inheritable
-		NULL,                           // Thread handle not inheritable
-		TRUE,                           // Set handle inheritance
-		0,                              // No creation flags
-		NULL,                           // Use parent's environment block
-		NULL,                           // Use parent's starting directory 
-		&si,                            // Pointer to STARTUPINFO structure
-		&pi)                            // Pointer to PROCESS_INFORMATION structure
-		)
-	{
-		WaitForSingleObject(pi.hProcess, INFINITE);
-
-		dwRead = 0;
-		
-		if (ReadFile(hChildStd_OUT_Rd, chBuf, sizeof (chBuf) - 1, &dwRead, NULL) && dwRead < sizeof(chBuf) - 1)
-		{
-			chBuf[dwRead] = 0;
-		}
-
-		CloseHandle(pi.hProcess);
-		CloseHandle(pi.hThread);
-	}
-
-	CloseHandle(hChildStd_OUT_Rd);
-	CloseHandle(hChildStd_OUT_Wr);
-
-	delete[] pszCommandLineBuffer;
-
-	const int nLen = strlen(chBuf);
+	const int nLen = strlen(chProcessBuf);
 
 	if (nLen > 0)
 	{
 		CHAR chNumber[64] = { 0 };
 
-		for (int i = 0, j=0; i < nLen; i++)
+		for (int i = 0, j = 0; i < nLen; i++)
 		{
-			char c = chBuf[i];
+			char c = chProcessBuf[i];
 			if (c == '.')
 				break;
 
@@ -182,13 +120,79 @@ int CheckInstalledChromeDriverVersion()
 
 
 
+BOOL MyRunProcess(TCHAR* pszCommandLine)
+{
+	STARTUPINFO si = { 0 };
+	PROCESS_INFORMATION pi = { 0 };
+	SECURITY_ATTRIBUTES saAttr = { 0 };
+	HANDLE hChildStd_OUT_Rd = NULL;
+	HANDLE hChildStd_OUT_Wr = NULL;
+	DWORD dwRead;
+	
+	chProcessBuf[0] = 0;
 
+	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+	saAttr.bInheritHandle = TRUE;
+	saAttr.lpSecurityDescriptor = NULL;
 
+	// Create a pipe for the child process's STDOUT. 
+
+	if (!CreatePipe(&hChildStd_OUT_Rd, &hChildStd_OUT_Wr, &saAttr, 0))
+	{
+		return FALSE;
+	}
+
+	// Ensure the read handle to the pipe for STDOUT is not inherited.
+
+	if (!SetHandleInformation(hChildStd_OUT_Rd, HANDLE_FLAG_INHERIT, 0))
+	{
+		CloseHandle(hChildStd_OUT_Rd);
+		CloseHandle(hChildStd_OUT_Wr);
+		return FALSE;
+	}
+
+	si.cb = sizeof(si);
+	si.hStdError = hChildStd_OUT_Wr;
+	si.hStdOutput = hChildStd_OUT_Wr;
+	si.dwFlags |= STARTF_USESTDHANDLES;
+
+	// Start the child process. 
+	if (CreateProcess(NULL,           // No module name (use command line)
+		pszCommandLine,    // Command line
+		NULL,                           // Process handle not inheritable
+		NULL,                           // Thread handle not inheritable
+		TRUE,                           // Set handle inheritance
+		0,                              // No creation flags
+		NULL,                           // Use parent's environment block
+		NULL,                           // Use parent's starting directory 
+		&si,                            // Pointer to STARTUPINFO structure
+		&pi)                            // Pointer to PROCESS_INFORMATION structure
+		)
+	{
+		WaitForSingleObject(pi.hProcess, INFINITE);
+
+		dwRead = 0;
+
+		if (ReadFile(hChildStd_OUT_Rd, chProcessBuf, sizeof(chProcessBuf) - 1, &dwRead, NULL) && dwRead < sizeof(chProcessBuf) - 1)
+		{
+			chProcessBuf[dwRead] = 0;
+		}
+
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+	}
+
+	CloseHandle(hChildStd_OUT_Rd);
+	CloseHandle(hChildStd_OUT_Wr);
+
+	return TRUE;
+}
 
 TCHAR* GetLatestChromeDriverUrl(int nVersion)
 {
-	TCHAR szLatestUrl[255] = { 0 };
-	_stprintf(szLatestUrl, _T("https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%d"), nVersion);
+
+	TCHAR szCommand[255] = { 0 };
+	_stprintf(szCommand, _T("curl https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%d"), nVersion);
 	
 	IStream* stream;
 	//Source URL
