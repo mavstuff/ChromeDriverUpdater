@@ -3,7 +3,8 @@
 
 #include "miniz.h"
 
-const TCHAR g_szChromePath[] = _T("c:\\Program Files (x86)\\Google\\Chrome\\");
+const TCHAR g_szChromePath1[] = _T("c:\\Program Files (x86)\\Google\\Chrome\\");
+const TCHAR g_szChromePath2[] = _T("c:\\Program Files\\Google\\Chrome\\");
 
 TCHAR g_szWorkingPath[MAX_PATH];
 
@@ -16,7 +17,7 @@ void GetWorkingPath()
 int GetInstalledChormeVersion()
 {
 	TCHAR* szExePath = new TCHAR[MAX_PATH];
-	_tcscpy(szExePath, g_szChromePath);
+	_tcscpy(szExePath, g_szChromePath2);
 	PathAppend(szExePath, _T("Application\\chrome.exe"));
 
 	int nVer = -1;
@@ -63,6 +64,121 @@ int GetInstalledChormeVersion()
 	return nVer;
 }
 
+
+
+
+
+int CheckInstalledChromeDriverVersion()
+{
+	STARTUPINFO si = { 0 };
+	PROCESS_INFORMATION pi = { 0 };
+	SECURITY_ATTRIBUTES saAttr = { 0 };
+	HANDLE hChildStd_OUT_Rd = NULL;
+	HANDLE hChildStd_OUT_Wr = NULL;
+	DWORD dwRead;
+	CHAR chBuf[512];
+	int nVersion = -1;
+		
+	chBuf[0] = 0;
+
+	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+	saAttr.bInheritHandle = TRUE;
+	saAttr.lpSecurityDescriptor = NULL;
+
+	// Create a pipe for the child process's STDOUT. 
+
+	if (!CreatePipe(&hChildStd_OUT_Rd, &hChildStd_OUT_Wr, &saAttr, 0))
+	{
+		return -1;
+	}
+
+	// Ensure the read handle to the pipe for STDOUT is not inherited.
+
+	if (!SetHandleInformation(hChildStd_OUT_Rd, HANDLE_FLAG_INHERIT, 0))
+	{
+		CloseHandle(hChildStd_OUT_Rd);
+		CloseHandle(hChildStd_OUT_Wr);
+		return -1;
+	}
+
+	si.cb = sizeof(si);
+	si.hStdError = hChildStd_OUT_Wr;
+	si.hStdOutput = hChildStd_OUT_Wr;
+	si.dwFlags |= STARTF_USESTDHANDLES;
+
+	TCHAR* pszCommandLineBuffer =  new TCHAR[MAX_PATH + 128];
+	if (!pszCommandLineBuffer)
+	{
+		CloseHandle(hChildStd_OUT_Rd);
+		CloseHandle(hChildStd_OUT_Wr);
+		return -1;
+	}
+	
+	_tcscpy(pszCommandLineBuffer, g_szWorkingPath);
+	PathAppend(pszCommandLineBuffer, _T("chromedriver.exe"));
+	_tcscat(pszCommandLineBuffer, _T(" --version"));
+	
+	// Start the child process. 
+	if (CreateProcess(NULL,           // No module name (use command line)
+		pszCommandLineBuffer,    // Command line
+		NULL,                           // Process handle not inheritable
+		NULL,                           // Thread handle not inheritable
+		TRUE,                           // Set handle inheritance
+		0,                              // No creation flags
+		NULL,                           // Use parent's environment block
+		NULL,                           // Use parent's starting directory 
+		&si,                            // Pointer to STARTUPINFO structure
+		&pi)                            // Pointer to PROCESS_INFORMATION structure
+		)
+	{
+		WaitForSingleObject(pi.hProcess, INFINITE);
+
+		dwRead = 0;
+		
+		if (ReadFile(hChildStd_OUT_Rd, chBuf, sizeof (chBuf) - 1, &dwRead, NULL) && dwRead < sizeof(chBuf) - 1)
+		{
+			chBuf[dwRead] = 0;
+		}
+
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+	}
+
+	CloseHandle(hChildStd_OUT_Rd);
+	CloseHandle(hChildStd_OUT_Wr);
+
+	delete[] pszCommandLineBuffer;
+
+	const int nLen = strlen(chBuf);
+
+	if (nLen > 0)
+	{
+		CHAR chNumber[64] = { 0 };
+
+		for (int i = 0, j=0; i < nLen; i++)
+		{
+			char c = chBuf[i];
+			if (c == '.')
+				break;
+
+			if (c >= '0' && c <= '9')
+			{
+				if (j < sizeof(chNumber) - 2)
+					chNumber[j++] = c;
+			}
+		}
+
+		nVersion = atoi(chNumber);
+	}
+
+	return nVersion;
+}
+
+
+
+
+
+
 TCHAR* GetLatestChromeDriverUrl(int nVersion)
 {
 	TCHAR szLatestUrl[255];
@@ -70,7 +186,7 @@ TCHAR* GetLatestChromeDriverUrl(int nVersion)
 	
 	IStream* stream;
 	//Source URL
-
+	
 	// URLDownloadToFile returns S_OK on success 
 	if (URLOpenBlockingStream(0, szLatestUrl, &stream, 0, 0) == S_OK)
 	{
@@ -173,12 +289,21 @@ int main()
 {
 	GetWorkingPath();
     
-	int nVer = GetInstalledChormeVersion();
-
-	if (nVer > 0)
+	int nVerInstalledChrome = GetInstalledChormeVersion();
+	if (nVerInstalledChrome > 0)
 	{
-		std::wcout << _T("Found installed chrome version: ") << nVer << std::endl;
-		TCHAR* szUrl = GetLatestChromeDriverUrl(nVer);
+		std::wcout << _T("Found installed Chrome version: ") << nVerInstalledChrome << std::endl;
+	}
+
+	int nVerChromeDriver = CheckInstalledChromeDriverVersion();
+	if (nVerChromeDriver > 0)
+	{
+		std::wcout << _T("Found installed ChromeDriver version: ") << nVerChromeDriver << std::endl;
+	}
+
+	if (nVerInstalledChrome != nVerChromeDriver)
+	{		
+		TCHAR* szUrl = GetLatestChromeDriverUrl(nVerInstalledChrome);
 		if (szUrl)
 		{
 			std::wcout << _T("Latest ChromeDriverUrl: ") << szUrl << std::endl;
