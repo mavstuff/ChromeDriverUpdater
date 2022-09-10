@@ -9,6 +9,8 @@
 
 #include "miniz.h"
 
+#include "ChromeDriverUpdater.h"
+
 const TCHAR g_szChromePath1[] = _T("c:\\Program Files (x86)\\Google\\Chrome\\");
 const TCHAR g_szChromePath2[] = _T("c:\\Program Files\\Google\\Chrome\\");
 
@@ -190,67 +192,47 @@ BOOL MyRunProcess(TCHAR* pszCommandLine)
 
 TCHAR* GetLatestChromeDriverUrl(int nVersion)
 {
-
 	TCHAR szCommand[255] = { 0 };
-	_stprintf(szCommand, _T("curl https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%d"), nVersion);
-	
-	IStream* stream;
-	//Source URL
-	
-	// URLDownloadToFile returns S_OK on success 
-	HRESULT hr = URLOpenBlockingStream(NULL, szLatestUrl, &stream, 0, NULL);
-	if (hr == S_OK)
+	_stprintf(szCommand, _T("curl -s https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%d"), nVersion);
+
+	if (MyRunProcess(szCommand))
 	{
-		char buff[128] = { 0 };
-		char* p = buff;
-
-		ULONG bytesRead = 0;
-		while ((p - buff) < sizeof(buff) - 1  &&
-			   stream->Read(p, sizeof(buff) - 1 - (p-buff), &bytesRead) == S_OK)
-		{	
-			p += bytesRead;
-		};
-		stream->Release(); //Realease the interface.
-
-		TCHAR szVersion[128] = { 0 };
-
-		MultiByteToWideChar(CP_ACP, 0, buff, -1, szVersion, sizeof(szVersion) / sizeof(szVersion[0]));
-
-		TCHAR* pszZipUrl = new TCHAR[255];
-		if (pszZipUrl)
+		if (strlen(chProcessBuf) > 0)
 		{
-			_stprintf(pszZipUrl, _T("https://chromedriver.storage.googleapis.com/%s/chromedriver_win32.zip"), szVersion);
-			return pszZipUrl;
+			TCHAR szVersion[128] = { 0 };
+			MultiByteToWideChar(CP_ACP, 0, chProcessBuf, -1, szVersion, sizeof(szVersion) / sizeof(szVersion[0]));
+
+			TCHAR* pszZipUrl = new TCHAR[255];
+			if (pszZipUrl)
+			{
+				_stprintf(pszZipUrl, _T("https://chromedriver.storage.googleapis.com/%s/chromedriver_win32.zip"), szVersion);
+				return pszZipUrl;
+			}
 		}
 	}
-	else
-	{
-		_tprintf(_T("URLOpenBlockingStream hr = %X, url = %s"), hr, szLatestUrl);
-	}
+	
 	return NULL;
 }
 
 
 TCHAR* DownloadChromiumZip(TCHAR* pszZipUrl)
 {
-	TCHAR* pszZipFile = new TCHAR[MAX_PATH];
-	if (pszZipFile)
+	
+	TCHAR* pszZipFile = new TCHAR[255];
+
+	TCHAR szCommand[255] = { 0 };
+	
+	_tcscpy(pszZipFile, g_szWorkingPath);
+	PathAppend(pszZipFile, _T("chromedriver_win32.zip"));
+
+	_stprintf(szCommand, _T("curl -o %s %s "), pszZipUrl, pszZipFile);
+
+	if (MyRunProcess(szCommand))
 	{
-		_tcscpy(pszZipFile, g_szWorkingPath);
-		PathAppend(pszZipFile, _T("chromedriver_win32.zip"));
-		
-		if (URLDownloadToFile(NULL, pszZipUrl, pszZipFile, 0, NULL) == S_OK)
-		{
-			return pszZipFile;
-		}
-		
-		delete[] pszZipFile;
+		return pszZipFile;
 	}
 	return NULL;
 }
-
-
-
 
 
 BOOL UnzipChromiumZip(TCHAR* szZipPath)

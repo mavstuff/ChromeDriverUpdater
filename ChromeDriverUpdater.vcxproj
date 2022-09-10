@@ -158,6 +158,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ChromeDriverUpdater.h" />
     <ClInclude Include="miniz.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
