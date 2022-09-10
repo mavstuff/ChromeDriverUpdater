@@ -1,3 +1,9 @@
+/*
+	ChromeDriverUpdater - checks installed Chrom version and current chromedriver.
+	(c) 2022 Artem Moroz <artem.moroz@gmail.com>
+
+*/
+
 #include "pch.h"
 #include <iostream>
 
