@@ -175,10 +175,20 @@ BOOL MyRunProcess(TCHAR* pszCommandLine)
 
 		dwRead = 0;
 
+		if (PeekNamedPipe(hChildStd_OUT_Rd,
+			chProcessBuf, sizeof(chProcessBuf) - 1, &dwRead, NULL, NULL))
+		{
+			chProcessBuf[dwRead] = 0;
+		}
+
+		/*
 		if (ReadFile(hChildStd_OUT_Rd, chProcessBuf, sizeof(chProcessBuf) - 1, &dwRead, NULL) && dwRead < sizeof(chProcessBuf) - 1)
 		{
 			chProcessBuf[dwRead] = 0;
 		}
+		*/
+
+		printf("%s", chProcessBuf);
 
 		CloseHandle(pi.hProcess);
 		CloseHandle(pi.hThread);
@@ -188,6 +198,12 @@ BOOL MyRunProcess(TCHAR* pszCommandLine)
 	CloseHandle(hChildStd_OUT_Wr);
 
 	return TRUE;
+}
+// this must be limited to killing in a current directory only
+void KillAllChromeDrivers()
+{
+	TCHAR szCommand[255] = _T("taskkill /F /IM chromedriver.exe /T");
+	MyRunProcess(szCommand);
 }
 
 TCHAR* GetLatestChromeDriverUrl(int nVersion)
@@ -225,7 +241,7 @@ TCHAR* DownloadChromiumZip(TCHAR* pszZipUrl)
 	_tcscpy(pszZipFile, g_szWorkingPath);
 	PathAppend(pszZipFile, _T("chromedriver_win32.zip"));
 
-	_stprintf(szCommand, _T("curl -o %s %s "), pszZipUrl, pszZipFile);
+	_stprintf(szCommand, _T("curl -o %s %s -s"), pszZipFile, pszZipUrl);
 
 	if (MyRunProcess(szCommand))
 	{
@@ -285,6 +301,8 @@ BOOL UnzipChromiumZip(TCHAR* szZipPath)
 int main()
 {
 	GetWorkingPath();
+
+	KillAllChromeDrivers();
     
 	int nVerInstalledChrome = GetInstalledChormeVersion();
 	if (nVerInstalledChrome > 0)

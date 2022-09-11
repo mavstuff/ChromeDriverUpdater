@@ -11,6 +11,6 @@
 #include <windows.h>
 #include <Shlwapi.h>
 #include <tchar.h>
-#include <urlmon.h>
+#include <tlhelp32.h>
 
 #endif //PCH_H
