@@ -11,11 +11,7 @@
 
 #include "ChromeDriverUpdater.h"
 
-const TCHAR g_szChromePath1[] = _T("c:\\Program Files (x86)\\Google\\Chrome\\");
-const TCHAR g_szChromePath2[] = _T("c:\\Program Files\\Google\\Chrome\\");
-
 TCHAR g_szWorkingPath[MAX_PATH];
-
 TCHAR g_szChromeDriverPath[MAX_PATH];
 
 CHAR chProcessBuf[512];
@@ -31,52 +27,40 @@ void GetWorkingPath()
 
 int GetInstalledChormeVersion()
 {
-	TCHAR* szExePath = new TCHAR[MAX_PATH];
-	_tcscpy(szExePath, g_szChromePath2);
-	PathAppend(szExePath, _T("Application\\chrome.exe"));
+	LSTATUS lResult;
+	HKEY hKey = NULL;
+	int nVersion = -1;
+	
+	lResult = RegOpenKeyEx(HKEY_CURRENT_USER, _T("SOFTWARE\\Google\\Chrome\\BLBeacon"), 0, KEY_READ, &hKey);
+	if (lResult == ERROR_SUCCESS)
+	{
+		TCHAR szValue[64] = { 0 };
+		DWORD dwData = sizeof (szValue) - 1 * sizeof (TCHAR);
+		DWORD dwType = REG_SZ;
 
-	int nVer = -1;
-   
-	VS_FIXEDFILEINFO* lpFfi = NULL;
-	UINT uVerLen = 0;
+		lResult = RegQueryValueEx(hKey, _T("version"), NULL, &dwType, (BYTE*)szValue, &dwData);
 
-    DWORD dwSize = GetFileVersionInfoSize(szExePath, NULL);
-    if (dwSize > 0)
-    {
-        BYTE* pbInfo = new BYTE[dwSize];
-        if (pbInfo != NULL)
-        {
-            if (GetFileVersionInfo(szExePath, NULL, dwSize, pbInfo))
-            {
-				if (VerQueryValue(pbInfo, _T("\\"), (LPVOID*)&lpFfi, &uVerLen))
+		if (lResult == ERROR_SUCCESS)
+		{
+			DWORD dwLen = dwData / sizeof(TCHAR);
+			szValue[dwLen] = 0;
+
+			for (DWORD i = 0; i < dwLen; i++)
+			{
+				TCHAR c = szValue[i];
+				if (c == '.')
 				{
-					if (lpFfi != NULL)
-					{
-						DWORD dwFileVersionMS = lpFfi->dwFileVersionMS;
-						DWORD dwFileVersionLS = lpFfi->dwFileVersionLS;
-
-						DWORD dwLeftMost = HIWORD(dwFileVersionMS);
-						nVer = (int)dwLeftMost;
-						
-						//DWORD dwSecondLeft = LOWORD(dwFileVersionMS);
-						//DWORD dwSecondRight = HIWORD(dwFileVersionLS);
-						//DWORD dwRightMost = LOWORD(dwFileVersionLS);
-
-						
-					}
+					szValue[i] = 0;
+					break;
 				}
-				
-            }
-            
-            delete[] pbInfo;
-        }
-    }
+			}
+			nVersion = _ttoi(szValue);
+		}
 
-	
+		RegCloseKey(hKey);
+	}
 
-	delete[] szExePath;
-	
-	return nVer;
+	return nVersion;
 }
 
 int CheckInstalledChromeDriverVersion()
