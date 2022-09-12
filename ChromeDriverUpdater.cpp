@@ -365,7 +365,7 @@ int main()
 		std::wcout << _T("Found installed ChromeDriver version: ") << nVerChromeDriver << std::endl;
 	}
 
-	if (nVerInstalledChrome != nVerChromeDriver)
+	if (nVerInstalledChrome > 0 && nVerInstalledChrome != nVerChromeDriver)
 	{		
 		TCHAR* szUrl = GetLatestChromeDriverUrl(nVerInstalledChrome);
 		if (szUrl)
