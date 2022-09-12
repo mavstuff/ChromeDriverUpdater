@@ -12,5 +12,6 @@
 #include <Shlwapi.h>
 #include <tchar.h>
 #include <tlhelp32.h>
+#include <psapi.h>
 
 #endif //PCH_H

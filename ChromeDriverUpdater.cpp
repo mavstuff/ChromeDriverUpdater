@@ -15,12 +15,18 @@ const TCHAR g_szChromePath1[] = _T("c:\\Program Files (x86)\\Google\\Chrome\\");
 const TCHAR g_szChromePath2[] = _T("c:\\Program Files\\Google\\Chrome\\");
 
 TCHAR g_szWorkingPath[MAX_PATH];
+
+TCHAR g_szChromeDriverPath[MAX_PATH];
+
 CHAR chProcessBuf[512];
 
 void GetWorkingPath()
 {
 	GetModuleFileName(NULL, g_szWorkingPath, MAX_PATH);
 	PathRemoveFileSpec(g_szWorkingPath);
+
+	_tcscpy(g_szChromeDriverPath, g_szWorkingPath);
+	PathAppend(g_szChromeDriverPath, _T("chromedriver.exe"));
 }
 
 int GetInstalledChormeVersion()
@@ -81,8 +87,7 @@ int CheckInstalledChromeDriverVersion()
 		return -1;
 	}
 
-	_tcscpy(pszChormeDriverPath, g_szWorkingPath);
-	PathAppend(pszChormeDriverPath, _T("chromedriver.exe"));
+	_tcscpy(pszChormeDriverPath, g_szChromeDriverPath);
 	_tcscat(pszChormeDriverPath, _T(" --version"));
 
 	if (!MyRunProcess(pszChormeDriverPath))
@@ -199,12 +204,55 @@ BOOL MyRunProcess(TCHAR* pszCommandLine)
 
 	return TRUE;
 }
-// this must be limited to killing in a current directory only
-void KillAllChromeDrivers()
+
+BOOL KillAllChromeDrivers()
 {
-	TCHAR szCommand[255] = _T("taskkill /F /IM chromedriver.exe /T");
-	MyRunProcess(szCommand);
+	HANDLE hProcessSnap;
+	HANDLE hProcess;
+	PROCESSENTRY32 pe32 = { 0 };
+
+	hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (hProcessSnap == INVALID_HANDLE_VALUE)
+	{
+		return FALSE;
+	}
+
+	pe32.dwSize = sizeof(PROCESSENTRY32);
+
+	if (!Process32First(hProcessSnap, &pe32))
+	{
+		CloseHandle(hProcessSnap);
+		return FALSE;
+	}
+
+	do
+	{
+		hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_TERMINATE, FALSE, pe32.th32ProcessID);
+		if (hProcess != NULL)
+		{
+			TCHAR szExePath[MAX_PATH];
+			szExePath[0] = 0;
+
+			if (GetModuleFileNameExW(hProcess, NULL, szExePath, MAX_PATH))
+			{
+				if (_tcsicmp(g_szChromeDriverPath, szExePath) == 0)
+				{
+					_tprintf(_T("Killing process %s, id %d\n"), szExePath, pe32.th32ProcessID);
+
+					TerminateProcess(hProcess, 0);
+				}
+			}
+
+			CloseHandle(hProcess);
+		}
+
+	} while (Process32Next(hProcessSnap, &pe32));
+
+	CloseHandle(hProcessSnap);
+	
+	return TRUE;
 }
+
 
 TCHAR* GetLatestChromeDriverUrl(int nVersion)
 {
@@ -303,7 +351,8 @@ int main()
 	GetWorkingPath();
 
 	KillAllChromeDrivers();
-    
+
+
 	int nVerInstalledChrome = GetInstalledChormeVersion();
 	if (nVerInstalledChrome > 0)
 	{
