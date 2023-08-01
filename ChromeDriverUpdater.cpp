@@ -8,13 +8,14 @@
 #include <iostream>
 
 #include "miniz.h"
+#include "cJSON.h"
 
 #include "ChromeDriverUpdater.h"
 
 TCHAR g_szWorkingPath[MAX_PATH];
 TCHAR g_szChromeDriverPath[MAX_PATH];
 
-CHAR chProcessBuf[512];
+CHAR chProcessBuf[10240];
 
 void GetWorkingPath()
 {
@@ -128,7 +129,7 @@ BOOL MyRunProcess(TCHAR* pszCommandLine)
 
 	// Create a pipe for the child process's STDOUT. 
 
-	if (!CreatePipe(&hChildStd_OUT_Rd, &hChildStd_OUT_Wr, &saAttr, 0))
+	if (!CreatePipe(&hChildStd_OUT_Rd, &hChildStd_OUT_Wr, &saAttr, sizeof(chProcessBuf)))
 	{
 		return FALSE;
 	}
@@ -149,7 +150,7 @@ BOOL MyRunProcess(TCHAR* pszCommandLine)
 
 	// Start the child process. 
 	if (CreateProcess(NULL,           // No module name (use command line)
-		pszCommandLine,    // Command line
+		pszCommandLine,					// Command line
 		NULL,                           // Process handle not inheritable
 		NULL,                           // Thread handle not inheritable
 		TRUE,                           // Set handle inheritance
@@ -241,25 +242,96 @@ BOOL KillAllChromeDrivers()
 TCHAR* GetLatestChromeDriverUrl(int nVersion)
 {
 	TCHAR szCommand[255] = { 0 };
-	_stprintf(szCommand, _T("curl -s https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%d"), nVersion);
+	TCHAR* pszZipUrl = NULL;
+
+	if (nVersion >= 115)
+		_tcscpy(szCommand, _T("curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"));
+	else
+		_stprintf(szCommand, _T("curl -s https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%d"), nVersion);
 
 	if (MyRunProcess(szCommand))
 	{
-		if (strlen(chProcessBuf) > 0)
-		{
-			TCHAR szVersion[128] = { 0 };
-			MultiByteToWideChar(CP_ACP, 0, chProcessBuf, -1, szVersion, sizeof(szVersion) / sizeof(szVersion[0]));
+		int nLen = strlen(chProcessBuf);
 
-			TCHAR* pszZipUrl = new TCHAR[255];
-			if (pszZipUrl)
+		if (nLen > 0)
+		{
+			if (nVersion >= 115)
 			{
-				_stprintf(pszZipUrl, _T("https://chromedriver.storage.googleapis.com/%s/chromedriver_win32.zip"), szVersion);
-				return pszZipUrl;
+				
+
+				auto pJSON = cJSON_Parse(chProcessBuf);
+				if (pJSON)
+				{
+					auto pChannels = cJSON_GetObjectItem(pJSON, "channels");
+					if (pChannels)
+					{
+						char szVersion[64];
+						int nVersionLen = sprintf(szVersion, "%d", nVersion);
+						if (nVersionLen > 0)
+						{
+							cJSON* pChannel = NULL;
+							cJSON_ArrayForEach(pChannel, pChannels) {
+
+								auto pVersion = cJSON_GetObjectItem(pChannel, "version");
+								if (pVersion && pVersion->valuestring != NULL &&
+									memcmp(pVersion->valuestring, szVersion, nVersionLen) == 0)
+								{
+									auto pDownloads = cJSON_GetObjectItem(pChannel, "downloads");
+									if (pDownloads)
+									{
+										auto pChromeDriver = cJSON_GetObjectItem(pDownloads, "chromedriver");
+										if (pChromeDriver)
+										{
+											cJSON* pDownloadItem = NULL;
+											cJSON_ArrayForEach(pDownloadItem, pChromeDriver) {
+												auto pPlatform = cJSON_GetObjectItem(pDownloadItem, "platform");
+												if (pPlatform && pPlatform->valuestring != NULL &&
+													strcmp(pPlatform->valuestring, "win32") == 0)
+												{
+													auto pUrl = cJSON_GetObjectItem(pDownloadItem, "url");
+													if (pUrl && pUrl->valuestring != NULL)
+													{
+														pszZipUrl = new TCHAR[255];
+														if (pszZipUrl)
+														{
+															MultiByteToWideChar(CP_ACP, 0, pUrl->valuestring, -1, pszZipUrl, 255);
+														}
+													}
+
+												}
+											}
+
+										}
+									}
+
+
+
+								}
+							}
+						}
+
+					}
+					cJSON_free(pJSON);
+				}
+
+
+			}
+			else
+			{
+
+				TCHAR szVersion[128] = { 0 };
+				MultiByteToWideChar(CP_ACP, 0, chProcessBuf, -1, szVersion, sizeof(szVersion) / sizeof(szVersion[0]));
+
+				pszZipUrl = new TCHAR[255];
+				if (pszZipUrl)
+				{
+					_stprintf(pszZipUrl, _T("https://chromedriver.storage.googleapis.com/%s/chromedriver_win32.zip"), szVersion);
+				}
 			}
 		}
 	}
 	
-	return NULL;
+	return pszZipUrl;
 }
 
 
@@ -306,12 +378,13 @@ BOOL UnzipChromiumZip(TCHAR* szZipPath)
 			mz_zip_archive_file_stat file_stat;
 			if (mz_zip_reader_file_stat(&zip_archive, i, &file_stat))
 			{
-				if (!mz_zip_reader_is_file_a_directory(&zip_archive, i))
+				if (!mz_zip_reader_is_file_a_directory(&zip_archive, i) && 
+					strstr(file_stat.m_filename, "chromedriver.exe") != NULL)
 				{
 					char szAOutPath[MAX_PATH];
 					szAOutPath[0] = 0;
 					
-					PathCombineA(szAOutPath, szAWorkingDir, file_stat.m_filename);
+					PathCombineA(szAOutPath, szAWorkingDir, "chromedriver.exe");
 					
 					status = mz_zip_reader_extract_file_to_file(&zip_archive, file_stat.m_filename, szAOutPath, 0);
 
