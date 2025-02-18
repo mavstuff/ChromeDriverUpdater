@@ -15,7 +15,7 @@
 TCHAR g_szWorkingPath[MAX_PATH];
 TCHAR g_szChromeDriverPath[MAX_PATH];
 
-CHAR chProcessBuf[10240];
+CHAR chProcessBuf[50 * 1024 * 1024];
 
 void GetWorkingPath()
 {
@@ -31,12 +31,12 @@ int GetInstalledChormeVersion()
 	LSTATUS lResult;
 	HKEY hKey = NULL;
 	int nVersion = -1;
-	
+
 	lResult = RegOpenKeyEx(HKEY_CURRENT_USER, _T("SOFTWARE\\Google\\Chrome\\BLBeacon"), 0, KEY_READ, &hKey);
 	if (lResult == ERROR_SUCCESS)
 	{
 		TCHAR szValue[64] = { 0 };
-		DWORD dwData = sizeof (szValue) - 1 * sizeof (TCHAR);
+		DWORD dwData = sizeof(szValue) - 1 * sizeof(TCHAR);
 		DWORD dwType = REG_SZ;
 
 		lResult = RegQueryValueEx(hKey, _T("version"), NULL, &dwType, (BYTE*)szValue, &dwData);
@@ -80,9 +80,9 @@ int CheckInstalledChromeDriverVersion()
 		delete[] pszChormeDriverPath;
 		return -1;
 	}
-	
+
 	delete[] pszChormeDriverPath;
-	
+
 	int nVersion = -1;
 
 	const int nLen = strlen(chProcessBuf);
@@ -120,7 +120,7 @@ BOOL MyRunProcess(TCHAR* pszCommandLine)
 	HANDLE hChildStd_OUT_Rd = NULL;
 	HANDLE hChildStd_OUT_Wr = NULL;
 	DWORD dwRead;
-	
+
 	chProcessBuf[0] = 0;
 
 	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
@@ -234,7 +234,7 @@ BOOL KillAllChromeDrivers()
 	} while (Process32Next(hProcessSnap, &pe32));
 
 	CloseHandle(hProcessSnap);
-	
+
 	return TRUE;
 }
 
@@ -243,9 +243,8 @@ TCHAR* GetLatestChromeDriverUrl(int nVersion)
 {
 	TCHAR szCommand[255] = { 0 };
 	TCHAR* pszZipUrl = NULL;
-
 	if (nVersion >= 115)
-		_tcscpy(szCommand, _T("curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"));
+		_tcscpy(szCommand, _T("curl -s https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"));
 	else
 		_stprintf(szCommand, _T("curl -s https://chromedriver.storage.googleapis.com/LATEST_RELEASE_%d"), nVersion);
 
@@ -257,64 +256,63 @@ TCHAR* GetLatestChromeDriverUrl(int nVersion)
 		{
 			if (nVersion >= 115)
 			{
-				
+				char szVersion[64];
+				int nVersionLen = sprintf(szVersion, "%d", nVersion);
+				bool bFound = false;
 
 				auto pJSON = cJSON_Parse(chProcessBuf);
 				if (pJSON)
 				{
-					auto pChannels = cJSON_GetObjectItem(pJSON, "channels");
-					if (pChannels)
+					auto pVersions = cJSON_GetObjectItem(pJSON, "versions");
+					if (pVersions)
 					{
-						char szVersion[64];
-						int nVersionLen = sprintf(szVersion, "%d", nVersion);
-						if (nVersionLen > 0)
+						cJSON* pVersion = NULL;
+						cJSON_ArrayForEach(pVersion, pVersions)
 						{
-							cJSON* pChannel = NULL;
-							cJSON_ArrayForEach(pChannel, pChannels) {
-
-								auto pVersion = cJSON_GetObjectItem(pChannel, "version");
-								if (pVersion && pVersion->valuestring != NULL &&
-									memcmp(pVersion->valuestring, szVersion, nVersionLen) == 0)
+							auto pVersion2 = cJSON_GetObjectItem(pVersion, "version");
+							if (pVersion2 && pVersion2->valuestring != NULL &&
+								memcmp(pVersion2->valuestring, szVersion, nVersionLen) == 0)
+							{
+								auto pDownloads = cJSON_GetObjectItem(pVersion, "downloads");
+								if (pDownloads)
 								{
-									auto pDownloads = cJSON_GetObjectItem(pChannel, "downloads");
-									if (pDownloads)
+									auto pChromeDriver = cJSON_GetObjectItem(pDownloads, "chromedriver");
+									if (pChromeDriver)
 									{
-										auto pChromeDriver = cJSON_GetObjectItem(pDownloads, "chromedriver");
-										if (pChromeDriver)
+										cJSON* pDownloadItem = NULL;
+										cJSON_ArrayForEach(pDownloadItem, pChromeDriver)
 										{
-											cJSON* pDownloadItem = NULL;
-											cJSON_ArrayForEach(pDownloadItem, pChromeDriver) {
-												auto pPlatform = cJSON_GetObjectItem(pDownloadItem, "platform");
-												if (pPlatform && pPlatform->valuestring != NULL &&
-													strcmp(pPlatform->valuestring, "win32") == 0)
+											auto pPlatform = cJSON_GetObjectItem(pDownloadItem, "platform");
+											if (pPlatform && pPlatform->valuestring != NULL &&
+												strcmp(pPlatform->valuestring, "win32") == 0)
+											{
+												auto pUrl = cJSON_GetObjectItem(pDownloadItem, "url");
+												if (pUrl && pUrl->valuestring != NULL)
 												{
-													auto pUrl = cJSON_GetObjectItem(pDownloadItem, "url");
-													if (pUrl && pUrl->valuestring != NULL)
+													pszZipUrl = new TCHAR[255];
+													if (pszZipUrl)
 													{
-														pszZipUrl = new TCHAR[255];
-														if (pszZipUrl)
-														{
-															MultiByteToWideChar(CP_ACP, 0, pUrl->valuestring, -1, pszZipUrl, 255);
-														}
+														MultiByteToWideChar(CP_ACP, 0, pUrl->valuestring, -1, pszZipUrl, 255);
+														bFound = true;
 													}
-
 												}
 											}
 
+											if (bFound)
+												break;
 										}
+
 									}
-
-
-
 								}
-							}
-						}
 
+							}
+
+							if (bFound)
+								break;
+						}
 					}
 					cJSON_free(pJSON);
 				}
-
-
 			}
 			else
 			{
@@ -330,18 +328,18 @@ TCHAR* GetLatestChromeDriverUrl(int nVersion)
 			}
 		}
 	}
-	
+
 	return pszZipUrl;
 }
 
 
 TCHAR* DownloadChromiumZip(TCHAR* pszZipUrl)
 {
-	
+
 	TCHAR* pszZipFile = new TCHAR[255];
 
 	TCHAR szCommand[255] = { 0 };
-	
+
 	_tcscpy(pszZipFile, g_szWorkingPath);
 	PathAppend(pszZipFile, _T("chromedriver_win32.zip"));
 
@@ -358,10 +356,10 @@ TCHAR* DownloadChromiumZip(TCHAR* pszZipUrl)
 BOOL UnzipChromiumZip(TCHAR* szZipPath)
 {
 	BOOL bMyStatus = FALSE;
-	
-	mz_zip_archive zip_archive = {0};
+
+	mz_zip_archive zip_archive = { 0 };
 	mz_bool status = 0;
-	
+
 	char szAZipPath[MAX_PATH];
 	szAZipPath[0] = 0;
 	WideCharToMultiByte(CP_ACP, 0, szZipPath, -1, szAZipPath, sizeof(szAZipPath), NULL, NULL);
@@ -369,7 +367,7 @@ BOOL UnzipChromiumZip(TCHAR* szZipPath)
 	char szAWorkingDir[MAX_PATH];
 	szAWorkingDir[0] = 0;
 	WideCharToMultiByte(CP_ACP, 0, g_szWorkingPath, -1, szAWorkingDir, sizeof(szAWorkingDir), NULL, NULL);
-	
+
 	status = mz_zip_reader_init_file(&zip_archive, szAZipPath, 0);
 	if (status)
 	{
@@ -378,14 +376,14 @@ BOOL UnzipChromiumZip(TCHAR* szZipPath)
 			mz_zip_archive_file_stat file_stat;
 			if (mz_zip_reader_file_stat(&zip_archive, i, &file_stat))
 			{
-				if (!mz_zip_reader_is_file_a_directory(&zip_archive, i) && 
+				if (!mz_zip_reader_is_file_a_directory(&zip_archive, i) &&
 					strstr(file_stat.m_filename, "chromedriver.exe") != NULL)
 				{
 					char szAOutPath[MAX_PATH];
 					szAOutPath[0] = 0;
-					
+
 					PathCombineA(szAOutPath, szAWorkingDir, "chromedriver.exe");
-					
+
 					status = mz_zip_reader_extract_file_to_file(&zip_archive, file_stat.m_filename, szAOutPath, 0);
 
 					if (status)
@@ -400,7 +398,7 @@ BOOL UnzipChromiumZip(TCHAR* szZipPath)
 	}
 
 	return bMyStatus;
-	
+
 }
 
 int main()
@@ -423,7 +421,7 @@ int main()
 	}
 
 	if (nVerInstalledChrome > 0 && nVerInstalledChrome != nVerChromeDriver)
-	{		
+	{
 		TCHAR* szUrl = GetLatestChromeDriverUrl(nVerInstalledChrome);
 		if (szUrl)
 		{
@@ -442,11 +440,13 @@ int main()
 				{
 					std::wcout << _T("Unzip failed") << std::endl;
 				}
-					
+
 				delete[] pszZipFile;
 			}
 			delete[] szUrl;
 		}
 	}
+
+	return 0;
 }
 
